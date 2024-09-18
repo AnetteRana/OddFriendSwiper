@@ -1,6 +1,10 @@
 package com.example.oddfriendswiper
 
 import android.os.Bundle
+import android.speech.tts.TextToSpeech
+import android.util.Log
+import android.widget.Toast
+import kotlin.random.Random
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -17,19 +21,78 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import com.example.oddfriendswiper.ui.theme.OddFriendSwiperTheme
+import java.util.*
 
 class MainActivity : ComponentActivity() {
+
+    // declare TTS variable
+    private lateinit var textToSpeech: TextToSpeech
+    private val supportedLanguages = listOf(Locale.US, Locale.UK, Locale.CANADA, Locale.GERMANY)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // initialize TTS
+        textToSpeech = TextToSpeech(this){ status ->
+            if (status == TextToSpeech.SUCCESS){
+                val result = textToSpeech.setLanguage(Locale.US)
+                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    Log.e("TTS", "The Language specified is not supported!")
+                    Toast.makeText(this, "TTS language not supported", Toast.LENGTH_LONG).show()
+                } else {
+                    Log.i("TTS", "TextToSpeech Initialized Successfully!")
+                }
+            } else {
+                Log.e("TTS", "Initialization Failed!")
+                Toast.makeText(this, "TTS Initialization Failed!", Toast.LENGTH_LONG).show()
+            }
+        }
+
         enableEdgeToEdge()
         setContent {
             OddFriendSwiperTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     // This is where we show the face parts
-                    RandomFace(modifier = Modifier.padding(innerPadding))
+                    RandomFace(
+                        modifier = Modifier.padding(innerPadding),
+                        onSpeak = { sentence ->
+                            // select a random language
+                            val selectedLanguage = supportedLanguages.random()
+                            val result = textToSpeech.setLanguage(selectedLanguage)
+                            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                                Log.e("TTS", "Selected language not supported!")
+                                return@RandomFace
+                            }
+
+                            // select a random voice from selected language
+                            val availableVoices = textToSpeech.voices.filter { it.locale == selectedLanguage }
+                            val selectedVoice = availableVoices.randomOrNull()
+                            selectedVoice?.let {
+                                textToSpeech.voice = it
+                                Log.i("TTS", "Selected voice: ${it.name}")
+                            } ?: Log.e("TTS", "No available voices for the selected language!")
+
+
+                            val randomPitch = Random.nextDouble(0.4, 2.0).toFloat()
+                            val randomRate = Random.nextDouble(0.9, 1.4).toFloat()
+
+                            textToSpeech.setPitch(randomPitch)
+                            textToSpeech.setSpeechRate(randomRate)
+
+                            textToSpeech.speak(sentence, TextToSpeech.QUEUE_FLUSH, null, null)
+                        }
+                        )
                 }
             }
+
+            }
         }
+    override fun onDestroy() {
+        if (this::textToSpeech.isInitialized){
+            textToSpeech.stop()
+            textToSpeech.shutdown()
+        }
+        super.onDestroy()
     }
 }
 
@@ -39,13 +102,13 @@ val eyes = arrayOf(R.drawable.eyes1, R.drawable.eyes2, R.drawable.eyes3, R.drawa
 val mouths = arrayOf(R.drawable.mouths1, R.drawable.mouths2, R.drawable.mouths3)
 
 // word.(s)
-val adjectives = arrayOf("happy", "sad", "furious", "excited", "nervous", "hungry")
-val verbs = arrayOf("eat", "build", "destroy", "create", "imagine", "fix")
-val nouns = arrayOf("cars", "houses", "ideas", "robots", "computers", "friends")
+val adjectives = arrayOf("healthy", "rich", "famous", "old", "left-winged", "much better than you", "future thinking", "stubborn", "scared of other humans", "romantic", "tired of liars", "hard working", "stupid", "happy", "sad", "bad ass", "hardcore", "excited", "nervous", "hungry", "tired of living", "high", "high ranking in my cult", "very fond of Taylor Swift", "bored with the internet", "lonely", "good looking", "popular now, because")
+val verbs = arrayOf("eat", "build", "destroy", "create", "imagine", "fix", "have ChatGPT generate images of", "made a game about", "went back to school to learn about", "take artistic photos of", "have made it my life mission to help", "have started praying to", "go to cosplay conventions, dressed like", "am warming up to the idea of", "have a youtube channel about", "have a tattoo of", "enjoy slapping", "am saving up to buy", "got caught with")
+val nouns = arrayOf("cars", "houses", "ideas", "robots", "your mom", "friends", "the wizard", "rude children", "sad cats", "a portal to another dimension", "a cape of invisibility", "a stupid programming language, like kotlin", "TROGDOR the BURNINATOR", "our lord and saviour, Jesus Christ")
 
 // image composable + button
 @Composable
-fun RandomFace(modifier: Modifier = Modifier) {
+fun RandomFace(modifier: Modifier = Modifier, onSpeak: (String) -> Unit) {
 
     // State variables for face parts
     // mutableStateOf makes the variable reactive,
@@ -129,19 +192,16 @@ fun RandomFace(modifier: Modifier = Modifier) {
             leftEye = getRandomFacePart(eyes)
             rightEye = getRandomFacePart(eyes)
             mouth = getRandomFacePart(mouths)
+
             sentence = generateRandomSentence()
+
+            // TTS
+            onSpeak(sentence)
+
         }) {
             Text("Next")
         }
 }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun RandomFacePreview() {
-    OddFriendSwiperTheme{
-        RandomFace()
-    }
 }
 
 // Function to get random image
@@ -154,4 +214,12 @@ fun generateRandomSentence(): String{
     val verb = verbs.random()
     val noun = nouns.random()
     return "I'm so $adjective I $verb $noun!"
+}
+
+@Preview(showBackground = true)
+@Composable
+fun RandomFacePreview() {
+    OddFriendSwiperTheme{
+        RandomFace(onSpeak = {})
+    }
 }
