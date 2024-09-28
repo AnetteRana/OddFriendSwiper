@@ -22,15 +22,126 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import com.example.oddfriendswiper.ui.theme.OddFriendSwiperTheme
 import java.util.*
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import android.content.Context
+import org.json.JSONObject
+import org.json.JSONArray
+import java.io.IOException
 
+// --- Constants and Data Classes ---
+data class Stats(var likes: Int = 0, var dislikes: Int = 0, var neutrals: Int = 0)
+
+val heads = arrayOf(R.drawable.heads1, R.drawable.heads2, R.drawable.heads3, R.drawable.heads4)
+val eyes = arrayOf(R.drawable.eyes1, R.drawable.eyes2, R.drawable.eyes3, R.drawable.eyes4, R.drawable.eyes5)
+val mouths = arrayOf(R.drawable.mouths1, R.drawable.mouths2, R.drawable.mouths3)
+
+// --- Utility Functions ---
+
+// function for loading from file
+fun loadWordsFromJson(context: Context): Map<String, List<String>>{
+    val json: String
+    try{
+        val inputStream = context.assets.open("words.json")
+        json = inputStream.bufferedReader().use{it.readText()}
+        val jsonObject = JSONObject(json)
+
+        val adjectives = jsonObject.getJSONArray("adjectives").toList()
+        val verbs = jsonObject.getJSONArray("verbs").toList()
+        val nouns = jsonObject.getJSONArray("nouns").toList()
+
+        return mapOf("adjectives" to adjectives, "verbs" to verbs, "nouns" to nouns)
+    } catch (ex: IOException){
+        ex.printStackTrace()
+        return emptyMap()
+    }
+}
+
+fun JSONArray.toList(): List<String>{
+    val list = mutableListOf<String>()
+    for (i in 0 until this.length()){
+        list.add(this.getString(i))
+    }
+    return list
+}
+
+//function for swipe detection
+fun Modifier.swipeable(
+    onSwipeLeft: () -> Unit,
+    onSwipeRight: () -> Unit
+): Modifier {
+    return pointerInput(Unit) {
+        var totalDragAmount = 0f
+        detectHorizontalDragGestures(
+            onHorizontalDrag = { _, dragAmount -> totalDragAmount += dragAmount },
+            onDragEnd = {
+                if (totalDragAmount > 100f) {
+                    onSwipeRight()
+                } else if (totalDragAmount < -100f) {
+                    onSwipeLeft()
+                }
+                totalDragAmount = 0f // Reset for next gesture
+            }
+        )
+    }
+}
+
+// Function to get random image
+fun getRandomFacePart(parts: Array<Int>): Int {
+    return parts.random()
+}
+
+// Function to generate a random sentence and return its parts
+fun generateRandomSentence(adjectives: List<String>,verbs: List<String>, nouns: List<String>): Triple<String, String, String> {
+    val adjective = adjectives.random()
+    val verb = verbs.random()
+    val noun = nouns.random()
+    return Triple(adjective, verb, noun)
+}
+
+// Function to update the stats for each word or image
+fun updateStats(word: String, statsMap: MutableMap<String, Stats>, action: String) {
+    // Retrieve existing stats or create new ones
+    val stats = statsMap[word] ?: Stats()
+
+    // Update stats based on the action
+    when (action) {
+        "like" -> stats.likes++
+        "dislike" -> stats.dislikes++
+        "neutral" -> stats.neutrals++
+    }
+
+    // Save the updated stats back to the map
+    statsMap[word] = stats
+}
+
+
+// --- Main Activity ---
 class MainActivity : ComponentActivity() {
+
+    // initialize maps to track stats
+    val adjectiveStats = mutableMapOf<String, Stats>()
+    val verbStats = mutableMapOf<String, Stats>()
+    val nounStats = mutableMapOf<String, Stats>()
+    val imageStats = mutableMapOf<String, Stats>()
 
     // declare TTS variable
     private lateinit var textToSpeech: TextToSpeech
     private val supportedLanguages = listOf(Locale.US, Locale.UK, Locale.CANADA, Locale.GERMANY)
 
+    // Declare the word lists
+    private lateinit var adjectives: List<String>
+    private lateinit var verbs: List<String>
+    private lateinit var nouns: List<String>
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // from json file
+        val wordsMap = loadWordsFromJson(this)
+        val adjectives = wordsMap["adjectives"] ?: emptyList()
+        val verbs = wordsMap["verbs"] ?: emptyList()
+        val nouns = wordsMap["nouns"] ?: emptyList()
 
         // initialize TTS
         textToSpeech = TextToSpeech(this){ status ->
@@ -53,7 +164,7 @@ class MainActivity : ComponentActivity() {
             OddFriendSwiperTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     // This is where we show the face parts
-                    RandomFace(
+                    MyCanvas(
                         modifier = Modifier.padding(innerPadding),
                         onSpeak = { sentence ->
                             // select a random language
@@ -61,7 +172,7 @@ class MainActivity : ComponentActivity() {
                             val result = textToSpeech.setLanguage(selectedLanguage)
                             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                                 Log.e("TTS", "Selected language not supported!")
-                                return@RandomFace
+                                return@MyCanvas
                             }
 
                             // select a random voice from selected language
@@ -80,13 +191,43 @@ class MainActivity : ComponentActivity() {
                             textToSpeech.setSpeechRate(randomRate)
 
                             textToSpeech.speak(sentence, TextToSpeech.QUEUE_FLUSH, null, null)
-                        }
-                        )
+                        },
+                        onSwipeLeft = { noun, adjective, verb, head, leftEye, rightEye, mouth -> // Handle swipe left (dislike)
+                            updateStats(noun, nounStats, "dislike")
+                            updateStats(adjective, adjectiveStats, "dislike")
+                            updateStats(verb, verbStats, "dislike")
+                            updateStats(head.toString(), imageStats, "dislike")
+                            updateStats(leftEye.toString(), imageStats, "dislike")
+                            updateStats(rightEye.toString(), imageStats, "dislike")
+                            updateStats(mouth.toString(), imageStats, "dislike")
+                        },
+                        onSwipeRight = { noun, adjective, verb, head, leftEye, rightEye, mouth -> // Handle swipe right (like)
+                            updateStats(noun, nounStats, "like")
+                            updateStats(adjective, adjectiveStats, "like")
+                            updateStats(verb, verbStats, "like")
+                            updateStats(head.toString(), imageStats, "like")
+                            updateStats(leftEye.toString(), imageStats, "like")
+                            updateStats(rightEye.toString(), imageStats, "like")
+                            updateStats(mouth.toString(), imageStats, "like")
+                        },
+                        onNeutral = { noun, adjective, verb, head, leftEye, rightEye, mouth -> // Handle "neutral" action when pressing Next button
+                            updateStats(noun, nounStats, "neutral")
+                            updateStats(adjective, adjectiveStats, "neutral")
+                            updateStats(verb, verbStats, "neutral")
+                            updateStats(head.toString(), imageStats, "neutral")
+                            updateStats(leftEye.toString(), imageStats, "neutral")
+                            updateStats(rightEye.toString(), imageStats, "neutral")
+                            updateStats(mouth.toString(), imageStats, "neutral")
+                        },
+                        adjectives = adjectives,
+                        verbs = verbs,
+                        nouns = nouns
+                    )
                 }
             }
-
-            }
         }
+    }
+
     override fun onDestroy() {
         if (this::textToSpeech.isInitialized){
             textToSpeech.stop()
@@ -96,48 +237,12 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Arrays containing the drawable resources for heads, eyes, and mouths
-val heads = arrayOf(R.drawable.heads1, R.drawable.heads2, R.drawable.heads3, R.drawable.heads4)
-val eyes = arrayOf(R.drawable.eyes1, R.drawable.eyes2, R.drawable.eyes3, R.drawable.eyes4, R.drawable.eyes5)
-val mouths = arrayOf(R.drawable.mouths1, R.drawable.mouths2, R.drawable.mouths3)
-
-// word.(s)
-val adjectives = arrayOf("healthy", "rich", "famous", "old", "left-winged", "much better than you", "future thinking", "stubborn", "scared of other humans", "romantic", "tired of liars", "hard working", "stupid", "happy", "sad", "bad ass", "hardcore", "excited", "nervous", "hungry", "tired of living", "high", "high ranking in my cult", "very fond of Taylor Swift", "bored with the internet", "lonely", "good looking", "popular now, because")
-val verbs = arrayOf("eat", "build", "destroy", "create", "imagine", "fix", "have ChatGPT generate images of", "made a game about", "went back to school to learn about", "take artistic photos of", "have made it my life mission to help", "have started praying to", "go to cosplay conventions, dressed like", "am warming up to the idea of", "have a youtube channel about", "have a tattoo of", "enjoy slapping", "am saving up to buy", "got caught with")
-val nouns = arrayOf("cars", "houses", "ideas", "robots", "your mom", "friends", "the wizard", "rude children", "sad cats", "a portal to another dimension", "a cape of invisibility", "a stupid programming language, like kotlin", "TROGDOR the BURNINATOR", "our lord and saviour, Jesus Christ")
-
-// image composable + button
+// --- Composables ---
 @Composable
-fun RandomFace(modifier: Modifier = Modifier, onSpeak: (String) -> Unit) {
-
-    // State variables for face parts
-    // mutableStateOf makes the variable reactive,
-    //meaning when it changes, the UI will recompose
-    var head by remember { mutableStateOf(getRandomFacePart(heads))}
-    var leftEye by remember { mutableStateOf(getRandomFacePart(eyes))}
-    var rightEye by remember { mutableStateOf(getRandomFacePart(eyes))}
-    var mouth by remember { mutableStateOf(getRandomFacePart(mouths))}
-
-    // state variable for the sentence displayed
-    var sentence by remember { mutableStateOf(generateRandomSentence())}
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ){
-        // sentence displayed here
-        Text(sentence)
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Box(
-        modifier = modifier
-            .size(300.dp)
-            .padding(16.dp),
-        contentAlignment = Alignment.Center // Center everything
+fun DisplayFace(head: Int, leftEye: Int, rightEye: Int, mouth: Int) {
+    Box(
+        modifier = Modifier.size(300.dp),
+        contentAlignment = Alignment.Center
     ) {
         // Head (this will be at the back)
         Image(
@@ -146,11 +251,11 @@ fun RandomFace(modifier: Modifier = Modifier, onSpeak: (String) -> Unit) {
             modifier = Modifier.size(200.dp)
         )
 
-        // Eyes (they will be on top of the head, side by side, adjusted vertically)
+        // Eyes (side by side)
         Row(
             modifier = Modifier
-                .align(Alignment.Center) // Align to the center of the Box
-                .offset(y = -50.dp), // Move the eyes above the head (adjust this value)
+                .align(Alignment.Center)
+                .offset(y = -50.dp), // Move the eyes above the head
             horizontalArrangement = Arrangement.spacedBy(40.dp) // Spacing between the eyes
         ) {
             // Left eye
@@ -172,19 +277,71 @@ fun RandomFace(modifier: Modifier = Modifier, onSpeak: (String) -> Unit) {
             )
         }
 
-        // Mouth (positioned below the eyes, closer to the head)
+        // Mouth (positioned below the eyes)
         Image(
             painter = painterResource(id = mouth),
             contentDescription = "Mouth",
             modifier = Modifier
-                .align(Alignment.Center) // Align to the center of the Box
-                .offset(y = 40.dp) // Move the mouth below the head
+                .align(Alignment.Center)
+                .offset(y = 40.dp)
                 .size(80.dp)
         )
     }
-        
+}
+
+@Composable
+fun MyCanvas(
+    modifier: Modifier = Modifier,
+    onSpeak: (String) -> Unit,
+    onSwipeLeft:(String, String, String, Int, Int, Int, Int)->Unit,
+    onSwipeRight:(String, String, String, Int, Int, Int, Int)->Unit,
+    onNeutral:(String, String, String, Int, Int, Int, Int)->Unit,
+    adjectives: List<String>,
+    verbs: List<String>,
+    nouns: List<String>
+) {
+
+    // State variables for face parts
+    var head by remember { mutableStateOf(getRandomFacePart(heads)) }
+    var leftEye by remember { mutableStateOf(getRandomFacePart(eyes)) }
+    var rightEye by remember { mutableStateOf(getRandomFacePart(eyes)) }
+    var mouth by remember { mutableStateOf(getRandomFacePart(mouths)) }
+
+    // state variable for the sentence parts
+    var sentenceParts by remember { mutableStateOf(generateRandomSentence(adjectives, verbs, nouns)) }
+    val (adjective, verb, noun) = sentenceParts
+
+    // Full sentence
+    val sentence = "I'm so $adjective I $verb $noun!"
+
+    Column(
+        modifier = modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // sentence displayed here
+        Text(sentence)
         Spacer(modifier = Modifier.height(16.dp))
-        
+
+        // Use DisplayFace and add the swipeable modifier
+        Box(
+            modifier = Modifier
+                .size(300.dp)
+                .swipeable(
+                    onSwipeLeft = {
+                        onSwipeLeft(noun, adjective, verb, head, leftEye, rightEye, mouth)
+                    },
+                    onSwipeRight = {
+                        onSwipeRight(noun, adjective, verb, head, leftEye, rightEye, mouth)
+                    }
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            DisplayFace(head = head, leftEye = leftEye, rightEye = rightEye, mouth = mouth)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         // Add the "next"-button
         Button(onClick = {
             // update state variables with new random states
@@ -193,33 +350,31 @@ fun RandomFace(modifier: Modifier = Modifier, onSpeak: (String) -> Unit) {
             rightEye = getRandomFacePart(eyes)
             mouth = getRandomFacePart(mouths)
 
-            sentence = generateRandomSentence()
-
-            // TTS
-            onSpeak(sentence)
-
+            // Update sentence parts and speak
+            sentenceParts = generateRandomSentence(adjectives, verbs, nouns)
+            onSpeak("I'm so ${sentenceParts.first} I ${sentenceParts.second} ${sentenceParts.third}!")
         }) {
             Text("Next")
         }
-}
-}
-
-// Function to get random image
-fun getRandomFacePart(parts: Array<Int>): Int{
-    return parts.random()
-}
-
-fun generateRandomSentence(): String{
-    val adjective = adjectives.random()
-    val verb = verbs.random()
-    val noun = nouns.random()
-    return "I'm so $adjective I $verb $noun!"
+    }
 }
 
 @Preview(showBackground = true)
 @Composable
 fun RandomFacePreview() {
-    OddFriendSwiperTheme{
-        RandomFace(onSpeak = {})
+    val sampleAdjectives = listOf("fake")
+    val sampleVerbs = listOf("lie about")
+    val sampleNouns = listOf("everything")
+
+    OddFriendSwiperTheme {
+        MyCanvas(
+            onSpeak = {},
+            onSwipeLeft = { _, _, _, _, _, _, _ ->},
+            onSwipeRight = { _, _, _, _, _, _, _ ->},
+            onNeutral = { _, _, _, _, _, _, _ ->},
+        adjectives = sampleAdjectives,
+        verbs = sampleVerbs,
+        nouns = sampleNouns
+        )
     }
 }
