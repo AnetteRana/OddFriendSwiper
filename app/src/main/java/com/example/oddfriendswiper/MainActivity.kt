@@ -25,9 +25,21 @@ import java.util.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import org.json.JSONObject
 import org.json.JSONArray
 import java.io.IOException
+import android.view.View
+import java.io.File
+import java.io.FileOutputStream
+import android.net.Uri
+import androidx.core.content.FileProvider
+import android.content.Intent
+
+
 
 // --- Constants and Data Classes ---
 data class Stats(var likes: Int = 0, var dislikes: Int = 0, var neutrals: Int = 0)
@@ -93,6 +105,11 @@ fun getRandomFacePart(parts: Array<Int>): Int {
 
 // Function to generate a random sentence and return its parts
 fun generateRandomSentence(adjectives: List<String>,verbs: List<String>, nouns: List<String>): Triple<String, String, String> {
+    // safeguard against empty lists
+    if (adjectives.isEmpty() || verbs.isEmpty() || nouns.isEmpty()){
+        throw IllegalArgumentException("One or more word lists are empty")
+    }
+
     val adjective = adjectives.random()
     val verb = verbs.random()
     val noun = nouns.random()
@@ -130,9 +147,9 @@ class MainActivity : ComponentActivity() {
     private val supportedLanguages = listOf(Locale.US, Locale.UK, Locale.CANADA, Locale.GERMANY)
 
     // Declare the word lists
-    private lateinit var adjectives: List<String>
-    private lateinit var verbs: List<String>
-    private lateinit var nouns: List<String>
+    private var adjectives: List<String> = emptyList()
+    private var verbs: List<String> = emptyList()
+    private var nouns: List<String> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -142,6 +159,16 @@ class MainActivity : ComponentActivity() {
         val adjectives = wordsMap["adjectives"] ?: emptyList()
         val verbs = wordsMap["verbs"] ?: emptyList()
         val nouns = wordsMap["nouns"] ?: emptyList()
+
+        // Log the sizes of the lists to verify they are loaded correctly
+        Log.d("MainActivity", "Adjectives loaded: ${adjectives.size}")
+        Log.d("MainActivity", "Verbs loaded: ${verbs.size}")
+        Log.d("MainActivity", "Nouns loaded: ${nouns.size}")
+
+        if (adjectives.isEmpty() || verbs.isEmpty() || nouns.isEmpty()) {
+            Toast.makeText(this, "Failed to load word lists. Please check your JSON file.", Toast.LENGTH_LONG).show()
+            return
+        }
 
         // initialize TTS
         textToSpeech = TextToSpeech(this){ status ->
@@ -221,7 +248,9 @@ class MainActivity : ComponentActivity() {
                         },
                         adjectives = adjectives,
                         verbs = verbs,
-                        nouns = nouns
+                        nouns = nouns,
+                        createBitmap = ::createBitmapFromCanvasView,
+                        shareBitmap = ::shareBitmap
                     )
                 }
             }
@@ -234,6 +263,49 @@ class MainActivity : ComponentActivity() {
             textToSpeech.shutdown()
         }
         super.onDestroy()
+    }
+
+    // create image
+    fun createBitmapFromCanvasView(view: View): Bitmap{
+
+        val topPosition = view.height /6
+
+        val bitmap = Bitmap.createBitmap(view.width, view.width, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        canvas.translate(0f, -topPosition.toFloat())
+
+        view.draw(canvas)
+        return bitmap
+    }
+
+    fun shareBitmap(context: Context, bitmap: Bitmap){
+        try {
+            // Save bitmap to cache directory
+            val cachePath = File(context.cacheDir, "images")
+            cachePath.mkdirs() // Create directory if not exists
+            val file = File(cachePath, "friend_image.png")
+            val fileOutputStream = FileOutputStream(file)
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, fileOutputStream)
+            fileOutputStream.close()
+
+            // Create content URI
+            val contentUri: Uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+
+            // Create share intent
+            val shareIntent = Intent().apply {
+                action = Intent.ACTION_SEND
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) // Grant permission for the other app to access this URI
+                setDataAndType(contentUri, context.contentResolver.getType(contentUri))
+                putExtra(Intent.EXTRA_STREAM, contentUri)
+                type = "image/png"
+            }
+
+            context.startActivity(Intent.createChooser(shareIntent, "Share your friend via"))
+        } catch (e: Exception) {
+            Log.e("ShareError", "Error sharing bitmap: ${e.message}")
+            Toast.makeText(context, "Failed to share image.", Toast.LENGTH_SHORT).show()
+        }
     }
 }
 
@@ -298,7 +370,9 @@ fun MyCanvas(
     onNeutral:(String, String, String, Int, Int, Int, Int)->Unit,
     adjectives: List<String>,
     verbs: List<String>,
-    nouns: List<String>
+    nouns: List<String>,
+    createBitmap: (View) ->Bitmap,
+    shareBitmap: (Context,Bitmap) -> Unit
 ) {
 
     // State variables for face parts
@@ -342,7 +416,9 @@ fun MyCanvas(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Add the "next"-button
+        // mute button TODO
+
+        // "next"-button
         Button(onClick = {
             // update state variables with new random states
             head = getRandomFacePart(heads)
@@ -356,6 +432,18 @@ fun MyCanvas(
         }) {
             Text("Next")
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // share button
+        val context = LocalContext.current
+        val view = LocalView.current
+        Button(onClick = {
+            val bitmap = createBitmap(view)
+            shareBitmap(context, bitmap)
+        }){
+            Text("Share")
+        }
     }
 }
 
@@ -366,6 +454,10 @@ fun RandomFacePreview() {
     val sampleVerbs = listOf("lie about")
     val sampleNouns = listOf("everything")
 
+    // Dummy implementations for the preview
+    val dummyCreateBitmap: (View) -> Bitmap = { Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888) }
+    val dummyShareBitmap: (Context, Bitmap) -> Unit = { _, _ -> }
+
     OddFriendSwiperTheme {
         MyCanvas(
             onSpeak = {},
@@ -374,7 +466,9 @@ fun RandomFacePreview() {
             onNeutral = { _, _, _, _, _, _, _ ->},
         adjectives = sampleAdjectives,
         verbs = sampleVerbs,
-        nouns = sampleNouns
+        nouns = sampleNouns,
+        createBitmap = dummyCreateBitmap,
+        shareBitmap = dummyShareBitmap
         )
     }
 }
