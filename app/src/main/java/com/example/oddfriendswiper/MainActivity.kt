@@ -38,24 +38,33 @@ import java.io.FileOutputStream
 import android.net.Uri
 import androidx.core.content.FileProvider
 import android.content.Intent
-
-
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
 
 // --- Constants and Data Classes ---
-data class Stats(var likes: Int = 0, var dislikes: Int = 0, var neutrals: Int = 0)
 
 val heads = arrayOf(R.drawable.heads1, R.drawable.heads2, R.drawable.heads3, R.drawable.heads4)
-val eyes = arrayOf(R.drawable.eyes1, R.drawable.eyes2, R.drawable.eyes3, R.drawable.eyes4, R.drawable.eyes5)
+val eyes = arrayOf(
+    R.drawable.eyes1,
+    R.drawable.eyes2,
+    R.drawable.eyes3,
+    R.drawable.eyes4,
+    R.drawable.eyes5
+)
 val mouths = arrayOf(R.drawable.mouths1, R.drawable.mouths2, R.drawable.mouths3)
 
 // --- Utility Functions ---
 
 // function for loading from file
-fun loadWordsFromJson(context: Context): Map<String, List<String>>{
+fun loadWordsFromJson(context: Context): Map<String, List<String>> {
     val json: String
-    try{
+    try {
         val inputStream = context.assets.open("words.json")
-        json = inputStream.bufferedReader().use{it.readText()}
+        json = inputStream.bufferedReader().use { it.readText() }
         val jsonObject = JSONObject(json)
 
         val adjectives = jsonObject.getJSONArray("adjectives").toList()
@@ -63,39 +72,18 @@ fun loadWordsFromJson(context: Context): Map<String, List<String>>{
         val nouns = jsonObject.getJSONArray("nouns").toList()
 
         return mapOf("adjectives" to adjectives, "verbs" to verbs, "nouns" to nouns)
-    } catch (ex: IOException){
+    } catch (ex: IOException) {
         ex.printStackTrace()
         return emptyMap()
     }
 }
 
-fun JSONArray.toList(): List<String>{
+fun JSONArray.toList(): List<String> {
     val list = mutableListOf<String>()
-    for (i in 0 until this.length()){
+    for (i in 0 until this.length()) {
         list.add(this.getString(i))
     }
     return list
-}
-
-//function for swipe detection
-fun Modifier.swipeable(
-    onSwipeLeft: () -> Unit,
-    onSwipeRight: () -> Unit
-): Modifier {
-    return pointerInput(Unit) {
-        var totalDragAmount = 0f
-        detectHorizontalDragGestures(
-            onHorizontalDrag = { _, dragAmount -> totalDragAmount += dragAmount },
-            onDragEnd = {
-                if (totalDragAmount > 100f) {
-                    onSwipeRight()
-                } else if (totalDragAmount < -100f) {
-                    onSwipeLeft()
-                }
-                totalDragAmount = 0f // Reset for next gesture
-            }
-        )
-    }
 }
 
 // Function to get random image
@@ -104,9 +92,13 @@ fun getRandomFacePart(parts: Array<Int>): Int {
 }
 
 // Function to generate a random sentence and return its parts
-fun generateRandomSentence(adjectives: List<String>,verbs: List<String>, nouns: List<String>): Triple<String, String, String> {
+fun generateRandomSentence(
+    adjectives: List<String>,
+    verbs: List<String>,
+    nouns: List<String>
+): Triple<String, String, String> {
     // safeguard against empty lists
-    if (adjectives.isEmpty() || verbs.isEmpty() || nouns.isEmpty()){
+    if (adjectives.isEmpty() || verbs.isEmpty() || nouns.isEmpty()) {
         throw IllegalArgumentException("One or more word lists are empty")
     }
 
@@ -116,34 +108,11 @@ fun generateRandomSentence(adjectives: List<String>,verbs: List<String>, nouns: 
     return Triple(adjective, verb, noun)
 }
 
-// Function to update the stats for each word or image
-fun updateStats(word: String, statsMap: MutableMap<String, Stats>, action: String) {
-    // Retrieve existing stats or create new ones
-    val stats = statsMap[word] ?: Stats()
-
-    // Update stats based on the action
-    when (action) {
-        "like" -> stats.likes++
-        "dislike" -> stats.dislikes++
-        "neutral" -> stats.neutrals++
-    }
-
-    // Save the updated stats back to the map
-    statsMap[word] = stats
-}
-
-
 // --- Main Activity ---
 class MainActivity : ComponentActivity() {
-
-    // initialize maps to track stats
-    val adjectiveStats = mutableMapOf<String, Stats>()
-    val verbStats = mutableMapOf<String, Stats>()
-    val nounStats = mutableMapOf<String, Stats>()
-    val imageStats = mutableMapOf<String, Stats>()
-
     // declare TTS variable
     private lateinit var textToSpeech: TextToSpeech
+    private var isTTSInitialized by mutableStateOf(false) // Track initialization
     private val supportedLanguages = listOf(Locale.US, Locale.UK, Locale.CANADA, Locale.GERMANY)
 
     // Declare the word lists
@@ -151,124 +120,10 @@ class MainActivity : ComponentActivity() {
     private var verbs: List<String> = emptyList()
     private var nouns: List<String> = emptyList()
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-
-        // from json file
-        val wordsMap = loadWordsFromJson(this)
-        val adjectives = wordsMap["adjectives"] ?: emptyList()
-        val verbs = wordsMap["verbs"] ?: emptyList()
-        val nouns = wordsMap["nouns"] ?: emptyList()
-
-        // Log the sizes of the lists to verify they are loaded correctly
-        Log.d("MainActivity", "Adjectives loaded: ${adjectives.size}")
-        Log.d("MainActivity", "Verbs loaded: ${verbs.size}")
-        Log.d("MainActivity", "Nouns loaded: ${nouns.size}")
-
-        if (adjectives.isEmpty() || verbs.isEmpty() || nouns.isEmpty()) {
-            Toast.makeText(this, "Failed to load word lists. Please check your JSON file.", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        // initialize TTS
-        textToSpeech = TextToSpeech(this){ status ->
-            if (status == TextToSpeech.SUCCESS){
-                val result = textToSpeech.setLanguage(Locale.US)
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    Log.e("TTS", "The Language specified is not supported!")
-                    Toast.makeText(this, "TTS language not supported", Toast.LENGTH_LONG).show()
-                } else {
-                    Log.i("TTS", "TextToSpeech Initialized Successfully!")
-                }
-            } else {
-                Log.e("TTS", "Initialization Failed!")
-                Toast.makeText(this, "TTS Initialization Failed!", Toast.LENGTH_LONG).show()
-            }
-        }
-
-        enableEdgeToEdge()
-        setContent {
-            OddFriendSwiperTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    // This is where we show the face parts
-                    MyCanvas(
-                        modifier = Modifier.padding(innerPadding),
-                        onSpeak = { sentence ->
-                            // select a random language
-                            val selectedLanguage = supportedLanguages.random()
-                            val result = textToSpeech.setLanguage(selectedLanguage)
-                            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                                Log.e("TTS", "Selected language not supported!")
-                                return@MyCanvas
-                            }
-
-                            // select a random voice from selected language
-                            val availableVoices = textToSpeech.voices.filter { it.locale == selectedLanguage }
-                            val selectedVoice = availableVoices.randomOrNull()
-                            selectedVoice?.let {
-                                textToSpeech.voice = it
-                                Log.i("TTS", "Selected voice: ${it.name}")
-                            } ?: Log.e("TTS", "No available voices for the selected language!")
-
-
-                            val randomPitch = Random.nextDouble(0.4, 2.0).toFloat()
-                            val randomRate = Random.nextDouble(0.9, 1.4).toFloat()
-
-                            textToSpeech.setPitch(randomPitch)
-                            textToSpeech.setSpeechRate(randomRate)
-
-                            textToSpeech.speak(sentence, TextToSpeech.QUEUE_FLUSH, null, null)
-                        },
-                        onSwipeLeft = { noun, adjective, verb, head, leftEye, rightEye, mouth -> // Handle swipe left (dislike)
-                            updateStats(noun, nounStats, "dislike")
-                            updateStats(adjective, adjectiveStats, "dislike")
-                            updateStats(verb, verbStats, "dislike")
-                            updateStats(head.toString(), imageStats, "dislike")
-                            updateStats(leftEye.toString(), imageStats, "dislike")
-                            updateStats(rightEye.toString(), imageStats, "dislike")
-                            updateStats(mouth.toString(), imageStats, "dislike")
-                        },
-                        onSwipeRight = { noun, adjective, verb, head, leftEye, rightEye, mouth -> // Handle swipe right (like)
-                            updateStats(noun, nounStats, "like")
-                            updateStats(adjective, adjectiveStats, "like")
-                            updateStats(verb, verbStats, "like")
-                            updateStats(head.toString(), imageStats, "like")
-                            updateStats(leftEye.toString(), imageStats, "like")
-                            updateStats(rightEye.toString(), imageStats, "like")
-                            updateStats(mouth.toString(), imageStats, "like")
-                        },
-                        onNeutral = { noun, adjective, verb, head, leftEye, rightEye, mouth -> // Handle "neutral" action when pressing Next button
-                            updateStats(noun, nounStats, "neutral")
-                            updateStats(adjective, adjectiveStats, "neutral")
-                            updateStats(verb, verbStats, "neutral")
-                            updateStats(head.toString(), imageStats, "neutral")
-                            updateStats(leftEye.toString(), imageStats, "neutral")
-                            updateStats(rightEye.toString(), imageStats, "neutral")
-                            updateStats(mouth.toString(), imageStats, "neutral")
-                        },
-                        adjectives = adjectives,
-                        verbs = verbs,
-                        nouns = nouns,
-                        createBitmap = ::createBitmapFromCanvasView,
-                        shareBitmap = ::shareBitmap
-                    )
-                }
-            }
-        }
-    }
-
-    override fun onDestroy() {
-        if (this::textToSpeech.isInitialized){
-            textToSpeech.stop()
-            textToSpeech.shutdown()
-        }
-        super.onDestroy()
-    }
-
     // create image
-    fun createBitmapFromCanvasView(view: View): Bitmap{
+    fun createBitmapFromCanvasView(view: View): Bitmap {
 
-        val topPosition = view.height /6
+        val topPosition = view.height / 6
 
         val bitmap = Bitmap.createBitmap(view.width, view.width, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -278,19 +133,19 @@ class MainActivity : ComponentActivity() {
         view.draw(canvas)
         return bitmap
     }
-
-    fun shareBitmap(context: Context, bitmap: Bitmap){
+    fun shareBitmap(context: Context, bitmap: Bitmap) {
         try {
             // Save bitmap to cache directory
             val cachePath = File(context.cacheDir, "images")
             cachePath.mkdirs() // Create directory if not exists
-            val file = File(cachePath, "friend_image.png")
+            val file = File(cachePath, "frienda_image.png")
             val fileOutputStream = FileOutputStream(file)
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, fileOutputStream)
             fileOutputStream.close()
 
             // Create content URI
-            val contentUri: Uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            val contentUri: Uri =
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 
             // Create share intent
             val shareIntent = Intent().apply {
@@ -307,6 +162,110 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(context, "Failed to share image.", Toast.LENGTH_SHORT).show()
         }
     }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // from json file
+        val wordsMap = loadWordsFromJson(this)
+        val adjectives = wordsMap["adjectives"] ?: emptyList()
+        val verbs = wordsMap["verbs"] ?: emptyList()
+        val nouns = wordsMap["nouns"] ?: emptyList()
+
+        // Log the sizes of the lists to verify they are loaded correctly
+        Log.d("MainActivity", "Adjectives loaded: ${adjectives.size}")
+        Log.d("MainActivity", "Verbs loaded: ${verbs.size}")
+        Log.d("MainActivity", "Nouns loaded: ${nouns.size}")
+
+        if (adjectives.isEmpty() || verbs.isEmpty() || nouns.isEmpty()) {
+            Toast.makeText(
+                this,
+                "Failed to load word lists. Please check your JSON file.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        // Log the sizes of the lists to verify they are loaded correctly
+        Log.d("MainActivity", "Adjectives loaded: ${adjectives.size}")
+        Log.d("MainActivity", "Verbs loaded: ${verbs.size}")
+        Log.d("MainActivity", "Nouns loaded: ${nouns.size}")
+
+        //
+        if (adjectives.isNotEmpty() || verbs.isNotEmpty() || nouns.isNotEmpty()) {
+            //isLoading = false // data successfully loaded
+        } else {
+            Toast.makeText(
+                this,
+                "Failed to load word lists. Please check your JSON file.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+
+
+        // initialize TTS
+        textToSpeech = TextToSpeech(this) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                val result = textToSpeech.setLanguage(Locale.US)
+                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    Log.e("TTS", "The Language specified is not supported!")
+                    Toast.makeText(this, "TTS language not supported", Toast.LENGTH_LONG).show()
+                } else {
+                    Log.i("TTS", "TextToSpeech Initialized Successfully!")
+                    isTTSInitialized = true // Mark TTS as initialized
+                }
+            } else {
+                Log.e("TTS", "Initialization Failed!")
+                Toast.makeText(this, "TTS Initialization Failed!", Toast.LENGTH_LONG).show()
+            }
+        }
+
+        enableEdgeToEdge()
+
+        setContent {
+            OddFriendSwiperTheme {
+                val navController = rememberNavController()
+
+                // set up navigation host
+                NavHost(navController = navController, startDestination = "start") {
+                    composable("start") {
+                        StartScreen(onNavigationToMainMenu = {
+                            if(isTTSInitialized) {
+                                navController.navigate("mainMenu")
+                            } else{
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "TTS is not initialized yet!",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        })
+                    }
+                    composable("mainMenu") {
+                        MainMenuScreen(
+                            textToSpeech = textToSpeech,  // Pass the initialized TTS object
+                            adjectives = adjectives,
+                            verbs = verbs,
+                            nouns = nouns,
+                            supportedLanguages,
+                            createBitmap = ::createBitmapFromCanvasView,
+                            shareBitmap = ::shareBitmap
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        if (this::textToSpeech.isInitialized) {
+            textToSpeech.stop()
+            textToSpeech.shutdown()
+        }
+        super.onDestroy()
+    }
+
+
 }
 
 // --- Composables ---
@@ -365,14 +324,11 @@ fun DisplayFace(head: Int, leftEye: Int, rightEye: Int, mouth: Int) {
 fun MyCanvas(
     modifier: Modifier = Modifier,
     onSpeak: (String) -> Unit,
-    onSwipeLeft:(String, String, String, Int, Int, Int, Int)->Unit,
-    onSwipeRight:(String, String, String, Int, Int, Int, Int)->Unit,
-    onNeutral:(String, String, String, Int, Int, Int, Int)->Unit,
     adjectives: List<String>,
     verbs: List<String>,
     nouns: List<String>,
-    createBitmap: (View) ->Bitmap,
-    shareBitmap: (Context,Bitmap) -> Unit
+    createBitmap: (View) -> Bitmap,
+    shareBitmap: (Context, Bitmap) -> Unit
 ) {
 
     // State variables for face parts
@@ -382,14 +338,24 @@ fun MyCanvas(
     var mouth by remember { mutableStateOf(getRandomFacePart(mouths)) }
 
     // state variable for the sentence parts
-    var sentenceParts by remember { mutableStateOf(generateRandomSentence(adjectives, verbs, nouns)) }
+    var sentenceParts by remember {
+        mutableStateOf(
+            generateRandomSentence(
+                adjectives,
+                verbs,
+                nouns
+            )
+        )
+    }
     val (adjective, verb, noun) = sentenceParts
 
     // Full sentence
     val sentence = "I'm so $adjective I $verb $noun!"
 
     Column(
-        modifier = modifier.fillMaxSize().padding(16.dp),
+        modifier = modifier
+            .fillMaxSize()
+            .padding(16.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -400,15 +366,7 @@ fun MyCanvas(
         // Use DisplayFace and add the swipeable modifier
         Box(
             modifier = Modifier
-                .size(300.dp)
-                .swipeable(
-                    onSwipeLeft = {
-                        onSwipeLeft(noun, adjective, verb, head, leftEye, rightEye, mouth)
-                    },
-                    onSwipeRight = {
-                        onSwipeRight(noun, adjective, verb, head, leftEye, rightEye, mouth)
-                    }
-                ),
+                .size(300.dp),
             contentAlignment = Alignment.Center
         ) {
             DisplayFace(head = head, leftEye = leftEye, rightEye = rightEye, mouth = mouth)
@@ -441,9 +399,97 @@ fun MyCanvas(
         Button(onClick = {
             val bitmap = createBitmap(view)
             shareBitmap(context, bitmap)
-        }){
+        }) {
             Text("Share")
         }
+    }
+}
+
+@Composable
+fun StartScreen(onNavigationToMainMenu: () -> Unit) {
+    var isLoading by remember { mutableStateOf(true) }
+    var progress by remember { mutableStateOf(0f) }
+
+    // simulate loading
+    LaunchedEffect(Unit) {
+        while (progress < 1f) {
+            progress += 0.02f
+            delay(20) // frames i think 🤔
+        }
+        isLoading = false // once loading is complete, shop showing bar
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        if (isLoading) {
+            CircularProgressIndicator(progress = progress)
+        } else {
+            Button(onClick = { onNavigationToMainMenu() }) {
+                Text("Make friends!")
+            }
+        }
+    }
+}
+
+@Composable
+fun MainMenuScreen(
+    textToSpeech: TextToSpeech,  // Ensure you receive the initialized TTS object here
+    adjectives: List<String>,
+    verbs: List<String>,
+    nouns: List<String>,
+    supportedLanguages: List<Locale>,
+    createBitmap: (View) -> Bitmap,
+    shareBitmap: (Context, Bitmap) -> Unit
+) {
+    // Log to ensure TTS is passed correctly
+    LaunchedEffect(Unit) {
+        if (!textToSpeech.isSpeaking) {
+            Log.i("TTS", "TextToSpeech is ready in MainMenuScreen.")
+        } else {
+            Log.e("TTS", "TextToSpeech is busy or not initialized!")
+        }
+    }
+
+    Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+        //if(isLoading){LoadingScreen()}
+        // This is where we show the face parts
+        MyCanvas(
+            modifier = Modifier.padding(innerPadding),
+            onSpeak =
+            { sentence ->
+                // select a random language
+                val selectedLanguage = supportedLanguages.random()
+                val result = textToSpeech.setLanguage(selectedLanguage)
+                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    Log.e("TTS", "Selected language not supported!")
+                    return@MyCanvas
+                }
+                // select a random voice from selected language
+                val availableVoices = textToSpeech.voices.filter { it.locale == selectedLanguage }
+                val selectedVoice = availableVoices.randomOrNull()
+                selectedVoice?.let {
+                    textToSpeech.voice = it
+                    Log.i("TTS", "Selected voice: ${it.name}")
+                } ?: Log.e("TTS", "No available voices for the selected language!")
+
+                val randomPitch = Random.nextDouble(0.4, 2.0).toFloat()
+                val randomRate = Random.nextDouble(0.9, 1.4).toFloat()
+                textToSpeech.setPitch(randomPitch)
+                textToSpeech.setSpeechRate(randomRate)
+
+                textToSpeech.speak(sentence, TextToSpeech.QUEUE_FLUSH, null, null)
+                Log.i("TTS", "Speaking: $sentence")
+            },
+            adjectives = adjectives,
+            verbs = verbs,
+            nouns = nouns,
+            createBitmap = createBitmap,
+            shareBitmap = shareBitmap
+        )
     }
 }
 
@@ -455,20 +501,18 @@ fun RandomFacePreview() {
     val sampleNouns = listOf("everything")
 
     // Dummy implementations for the preview
-    val dummyCreateBitmap: (View) -> Bitmap = { Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888) }
+    val dummyCreateBitmap: (View) -> Bitmap =
+        { Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888) }
     val dummyShareBitmap: (Context, Bitmap) -> Unit = { _, _ -> }
 
     OddFriendSwiperTheme {
         MyCanvas(
             onSpeak = {},
-            onSwipeLeft = { _, _, _, _, _, _, _ ->},
-            onSwipeRight = { _, _, _, _, _, _, _ ->},
-            onNeutral = { _, _, _, _, _, _, _ ->},
-        adjectives = sampleAdjectives,
-        verbs = sampleVerbs,
-        nouns = sampleNouns,
-        createBitmap = dummyCreateBitmap,
-        shareBitmap = dummyShareBitmap
+            adjectives = sampleAdjectives,
+            verbs = sampleVerbs,
+            nouns = sampleNouns,
+            createBitmap = dummyCreateBitmap,
+            shareBitmap = dummyShareBitmap
         )
     }
 }
