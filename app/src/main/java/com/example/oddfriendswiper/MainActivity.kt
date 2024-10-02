@@ -22,8 +22,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import com.example.oddfriendswiper.ui.theme.OddFriendSwiperTheme
 import java.util.*
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.ui.input.pointer.pointerInput
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas

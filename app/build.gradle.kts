@@ -66,9 +66,7 @@ dependencies {
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
-    implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.0") // for coroutine
-    implementation ("androidx.navigation:navigation-compose:2.5.3") // for navigation
-    //implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.1") // for delay
-
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3") // for coroutine and delay
+    implementation("androidx.navigation:navigation-compose:2.8.1") // for navigation
 
 }
