@@ -41,7 +41,16 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.logging.Logger
+import kotlinx.coroutines.withContext
+import java.util.*
 
 // --- Constants and Data Classes ---
 
@@ -54,6 +63,55 @@ val eyes = arrayOf(
     R.drawable.eyes5
 )
 val mouths = arrayOf(R.drawable.mouths1, R.drawable.mouths2, R.drawable.mouths3)
+
+object TTSManager : TextToSpeech.OnInitListener {
+    private var textToSpeech: TextToSpeech? = null
+    var isInitialized = false
+    private var initializationCallbacks = mutableListOf<() -> Unit>()
+
+    fun init(context: Context, callback: () -> Unit) {
+        if (isInitialized) {
+            callback()
+            return
+        }
+
+        initializationCallbacks.add(callback)
+        if (textToSpeech == null) {
+            textToSpeech = TextToSpeech(context.applicationContext, this)
+        }
+    }
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            val result = textToSpeech?.setLanguage(Locale.US)
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                Log.e("TTSManager", "The Language specified is not supported!")
+            } else {
+                Log.i("TTSManager", "TextToSpeech Initialized Successfully!")
+                isInitialized = true
+                initializationCallbacks.forEach { it() }
+                initializationCallbacks.clear()
+            }
+        } else {
+            Log.e("TTSManager", "Initialization Failed!")
+        }
+    }
+
+    suspend fun speak(sentence: String) {
+        withContext(Dispatchers.IO) {
+            textToSpeech?.let { tts ->
+                if (!tts.isSpeaking) {
+                    tts.speak(sentence, TextToSpeech.QUEUE_FLUSH, null, null)
+                }
+            } ?: Log.e("TTSManager", "TTS not initialized")
+        }
+    }
+
+    fun shutdown() {
+        textToSpeech?.stop()
+        textToSpeech?.shutdown()
+    }
+}
 
 // --- Utility Functions ---
 
@@ -109,14 +167,12 @@ fun generateRandomSentence(
 // --- Main Activity ---
 class MainActivity : ComponentActivity() {
     // declare TTS variable
-    private lateinit var textToSpeech: TextToSpeech
-    private var isTTSInitialized by mutableStateOf(false) // Track initialization
     private val supportedLanguages = listOf(Locale.US, Locale.UK, Locale.CANADA, Locale.GERMANY)
 
     // Declare the word lists
-    private var adjectives: List<String> = emptyList()
-    private var verbs: List<String> = emptyList()
-    private var nouns: List<String> = emptyList()
+    private lateinit var adjectives: List<String>
+    private lateinit var verbs: List<String>
+    private lateinit var nouns: List<String>
 
     // create image
     fun createBitmapFromCanvasView(view: View): Bitmap {
@@ -164,11 +220,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // from json file
+        // Load words from JSON
         val wordsMap = loadWordsFromJson(this)
-        val adjectives = wordsMap["adjectives"] ?: emptyList()
-        val verbs = wordsMap["verbs"] ?: emptyList()
-        val nouns = wordsMap["nouns"] ?: emptyList()
+        adjectives = wordsMap["adjectives"] ?: emptyList()
+        verbs = wordsMap["verbs"] ?: emptyList()
+        nouns = wordsMap["nouns"] ?: emptyList()
 
         // Log the sizes of the lists to verify they are loaded correctly
         Log.d("MainActivity", "Adjectives loaded: ${adjectives.size}")
@@ -184,12 +240,6 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // Log the sizes of the lists to verify they are loaded correctly
-        Log.d("MainActivity", "Adjectives loaded: ${adjectives.size}")
-        Log.d("MainActivity", "Verbs loaded: ${verbs.size}")
-        Log.d("MainActivity", "Nouns loaded: ${nouns.size}")
-
-        //
         if (adjectives.isNotEmpty() || verbs.isNotEmpty() || nouns.isNotEmpty()) {
             //isLoading = false // data successfully loaded
         } else {
@@ -200,25 +250,13 @@ class MainActivity : ComponentActivity() {
             ).show()
         }
 
-
-        // initialize TTS
-        textToSpeech = TextToSpeech(this) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                val result = textToSpeech.setLanguage(Locale.US)
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    Log.e("TTS", "The Language specified is not supported!")
-                    Toast.makeText(this, "TTS language not supported", Toast.LENGTH_LONG).show()
-                } else {
-                    Log.i("TTS", "TextToSpeech Initialized Successfully!")
-                    isTTSInitialized = true // Mark TTS as initialized
-                }
-            } else {
-                Log.e("TTS", "Initialization Failed!")
-                Toast.makeText(this, "TTS Initialization Failed!", Toast.LENGTH_LONG).show()
-            }
-        }
-
         enableEdgeToEdge()
+
+        // initialize TTS Manager
+        TTSManager.init(this){
+            // callback after TTS is initialized
+            Log.i("MainActivity", "TTS Initialized Successfully!")
+        }
 
         setContent {
             OddFriendSwiperTheme {
@@ -228,7 +266,7 @@ class MainActivity : ComponentActivity() {
                 NavHost(navController = navController, startDestination = "start") {
                     composable("start") {
                         StartScreen(onNavigationToMainMenu = {
-                            if(isTTSInitialized) {
+                            if(TTSManager.isInitialized) {
                                 navController.navigate("mainMenu")
                             } else{
                                 Toast.makeText(
@@ -241,11 +279,10 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("mainMenu") {
                         MainMenuScreen(
-                            textToSpeech = textToSpeech,  // Pass the initialized TTS object
                             adjectives = adjectives,
                             verbs = verbs,
                             nouns = nouns,
-                            supportedLanguages,
+                            supportedLanguages = supportedLanguages,
                             createBitmap = ::createBitmapFromCanvasView,
                             shareBitmap = ::shareBitmap
                         )
@@ -256,10 +293,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        if (this::textToSpeech.isInitialized) {
-            textToSpeech.stop()
-            textToSpeech.shutdown()
-        }
+        TTSManager.shutdown()
         super.onDestroy()
     }
 
@@ -435,7 +469,6 @@ fun StartScreen(onNavigationToMainMenu: () -> Unit) {
 
 @Composable
 fun MainMenuScreen(
-    textToSpeech: TextToSpeech,  // Ensure you receive the initialized TTS object here
     adjectives: List<String>,
     verbs: List<String>,
     nouns: List<String>,
@@ -443,44 +476,18 @@ fun MainMenuScreen(
     createBitmap: (View) -> Bitmap,
     shareBitmap: (Context, Bitmap) -> Unit
 ) {
-    // Log to ensure TTS is passed correctly
-    LaunchedEffect(Unit) {
-        if (!textToSpeech.isSpeaking) {
-            Log.i("TTS", "TextToSpeech is ready in MainMenuScreen.")
-        } else {
-            Log.e("TTS", "TextToSpeech is busy or not initialized!")
-        }
-    }
+    val coroutineScope = rememberCoroutineScope()
 
     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
         //if(isLoading){LoadingScreen()}
         // This is where we show the face parts
         MyCanvas(
             modifier = Modifier.padding(innerPadding),
-            onSpeak =
-            { sentence ->
-                // select a random language
-                val selectedLanguage = supportedLanguages.random()
-                val result = textToSpeech.setLanguage(selectedLanguage)
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    Log.e("TTS", "Selected language not supported!")
-                    return@MyCanvas
-                }
-                // select a random voice from selected language
-                val availableVoices = textToSpeech.voices.filter { it.locale == selectedLanguage }
-                val selectedVoice = availableVoices.randomOrNull()
-                selectedVoice?.let {
-                    textToSpeech.voice = it
-                    Log.i("TTS", "Selected voice: ${it.name}")
-                } ?: Log.e("TTS", "No available voices for the selected language!")
-
-                val randomPitch = Random.nextDouble(0.4, 2.0).toFloat()
-                val randomRate = Random.nextDouble(0.9, 1.4).toFloat()
-                textToSpeech.setPitch(randomPitch)
-                textToSpeech.setSpeechRate(randomRate)
-
-                textToSpeech.speak(sentence, TextToSpeech.QUEUE_FLUSH, null, null)
-                Log.i("TTS", "Speaking: $sentence")
+            onSpeak = { sentence ->
+               coroutineScope.launch {
+                   // can handle language selection here
+                   TTSManager.speak(sentence)
+               }
             },
             adjectives = adjectives,
             verbs = verbs,
