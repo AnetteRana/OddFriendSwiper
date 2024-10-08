@@ -4,7 +4,6 @@ import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import android.widget.Toast
-import kotlin.random.Random
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -43,14 +42,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.logging.Logger
-import kotlinx.coroutines.withContext
-import java.util.*
 
 // --- Constants and Data Classes ---
 
@@ -100,9 +93,10 @@ object TTSManager : TextToSpeech.OnInitListener {
     suspend fun speak(sentence: String) {
         withContext(Dispatchers.IO) {
             textToSpeech?.let { tts ->
-                if (!tts.isSpeaking) {
-                    tts.speak(sentence, TextToSpeech.QUEUE_FLUSH, null, null)
+                if (tts.isSpeaking) {
+                    tts.stop() // stop ongoing speech
                 }
+                tts.speak(sentence, TextToSpeech.QUEUE_FLUSH, null, null)
             } ?: Log.e("TTSManager", "TTS not initialized")
         }
     }
@@ -239,7 +233,7 @@ class MainActivity : ComponentActivity() {
             ).show()
             return
         }
-
+/*
         if (adjectives.isNotEmpty() || verbs.isNotEmpty() || nouns.isNotEmpty()) {
             //isLoading = false // data successfully loaded
         } else {
@@ -249,6 +243,7 @@ class MainActivity : ComponentActivity() {
                 Toast.LENGTH_LONG
             ).show()
         }
+*/
 
         enableEdgeToEdge()
 
