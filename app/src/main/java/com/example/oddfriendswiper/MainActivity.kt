@@ -1,5 +1,4 @@
 package com.example.oddfriendswiper
-
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.util.Log
@@ -35,18 +34,15 @@ import java.io.FileOutputStream
 import android.net.Uri
 import androidx.core.content.FileProvider
 import android.content.Intent
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 // --- Constants and Data Classes ---
-
 val heads = arrayOf(R.drawable.heads1, R.drawable.heads2, R.drawable.heads3, R.drawable.heads4)
 val eyes = arrayOf(
     R.drawable.eyes1,
@@ -108,26 +104,25 @@ object TTSManager : TextToSpeech.OnInitListener {
 }
 
 // --- Utility Functions ---
+suspend fun loadWordsFromJsonAsync(context: Context): Map<String, List<String>> {
+    return withContext(Dispatchers.IO){
+        val json: String
+        try {
+            val inputStream = context.assets.open("words.json")
+            json = inputStream.bufferedReader().use { it.readText() }
+            val jsonObject = JSONObject(json)
 
-// function for loading from file
-fun loadWordsFromJson(context: Context): Map<String, List<String>> {
-    val json: String
-    try {
-        val inputStream = context.assets.open("words.json")
-        json = inputStream.bufferedReader().use { it.readText() }
-        val jsonObject = JSONObject(json)
+            val adjectives = jsonObject.getJSONArray("adjectives").toList()
+            val verbs = jsonObject.getJSONArray("verbs").toList()
+            val nouns = jsonObject.getJSONArray("nouns").toList()
 
-        val adjectives = jsonObject.getJSONArray("adjectives").toList()
-        val verbs = jsonObject.getJSONArray("verbs").toList()
-        val nouns = jsonObject.getJSONArray("nouns").toList()
-
-        return mapOf("adjectives" to adjectives, "verbs" to verbs, "nouns" to nouns)
-    } catch (ex: IOException) {
-        ex.printStackTrace()
-        return emptyMap()
+            mapOf("adjectives" to adjectives, "verbs" to verbs, "nouns" to nouns)
+        } catch (ex: IOException) {
+            ex.printStackTrace()
+            emptyMap()
+        }
     }
 }
-
 fun JSONArray.toList(): List<String> {
     val list = mutableListOf<String>()
     for (i in 0 until this.length()) {
@@ -135,13 +130,9 @@ fun JSONArray.toList(): List<String> {
     }
     return list
 }
-
-// Function to get random image
 fun getRandomFacePart(parts: Array<Int>): Int {
     return parts.random()
 }
-
-// Function to generate a random sentence and return its parts
 fun generateRandomSentence(
     adjectives: List<String>,
     verbs: List<String>,
@@ -158,29 +149,26 @@ fun generateRandomSentence(
     return Triple(adjective, verb, noun)
 }
 
+suspend fun createBitmapFromCanvasView(view:View):Bitmap{
+    return withContext(Dispatchers.IO){
+        val topPosition = view.height /6
+        val bitmap = Bitmap.createBitmap(view.width, view.width, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.translate(0f, -topPosition.toFloat())
+        view.draw(canvas)
+        bitmap
+    }
+}
+
 // --- Main Activity ---
 class MainActivity : ComponentActivity() {
     // declare TTS variable
     private val supportedLanguages = listOf(Locale.US, Locale.UK, Locale.CANADA, Locale.GERMANY)
 
-    // Declare the word lists
-    private lateinit var adjectives: List<String>
-    private lateinit var verbs: List<String>
-    private lateinit var nouns: List<String>
+    private var adjectives: List<String>? = null
+    private var verbs: List<String>? = null
+    private var nouns: List<String>? = null
 
-    // create image
-    fun createBitmapFromCanvasView(view: View): Bitmap {
-
-        val topPosition = view.height / 6
-
-        val bitmap = Bitmap.createBitmap(view.width, view.width, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-
-        canvas.translate(0f, -topPosition.toFloat())
-
-        view.draw(canvas)
-        return bitmap
-    }
     fun shareBitmap(context: Context, bitmap: Bitmap) {
         try {
             // Save bitmap to cache directory
@@ -214,59 +202,44 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Load words from JSON
-        val wordsMap = loadWordsFromJson(this)
-        adjectives = wordsMap["adjectives"] ?: emptyList()
-        verbs = wordsMap["verbs"] ?: emptyList()
-        nouns = wordsMap["nouns"] ?: emptyList()
-
-        // Log the sizes of the lists to verify they are loaded correctly
-        Log.d("MainActivity", "Adjectives loaded: ${adjectives.size}")
-        Log.d("MainActivity", "Verbs loaded: ${verbs.size}")
-        Log.d("MainActivity", "Nouns loaded: ${nouns.size}")
-
-        if (adjectives.isEmpty() || verbs.isEmpty() || nouns.isEmpty()) {
-            Toast.makeText(
-                this,
-                "Failed to load word lists. Please check your JSON file.",
-                Toast.LENGTH_LONG
-            ).show()
-            return
-        }
-/*
-        if (adjectives.isNotEmpty() || verbs.isNotEmpty() || nouns.isNotEmpty()) {
-            //isLoading = false // data successfully loaded
-        } else {
-            Toast.makeText(
-                this,
-                "Failed to load word lists. Please check your JSON file.",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-*/
-
         enableEdgeToEdge()
-
-        // initialize TTS Manager
-        TTSManager.init(this){
-            // callback after TTS is initialized
-            Log.i("MainActivity", "TTS Initialized Successfully!")
-        }
 
         setContent {
             OddFriendSwiperTheme {
                 val navController = rememberNavController()
+                //for word lists
+                val isDataLoaded = remember { mutableStateOf(false) }
+
+                // Load words from JSON
+                LaunchedEffect(Unit) {
+                    val wordsMap = loadWordsFromJsonAsync(this@MainActivity)
+                    adjectives = wordsMap["adjectives"]
+                    verbs = wordsMap["verbs"]
+                    nouns = wordsMap["nouns"]
+
+                    if (adjectives !=null && verbs != null && nouns != null){
+                        isDataLoaded.value = true
+                    }
+                }
+
+                // initialize TTS Manager
+                TTSManager.init(this){
+                    // callback after TTS is initialized
+                    Log.i("MainActivity", "TTS Initialized Successfully!")
+                }
 
                 // set up navigation host
                 NavHost(navController = navController, startDestination = "start") {
                     composable("start") {
-                        StartScreen(onNavigationToMainMenu = {
-                            if(TTSManager.isInitialized) {
+                        StartScreen(
+                            isLoading = !isDataLoaded.value,
+                            onNavigationToMainMenu = {
+                            if(TTSManager.isInitialized && isDataLoaded.value) {
                                 navController.navigate("mainMenu")
                             } else{
                                 Toast.makeText(
                                     this@MainActivity,
-                                    "TTS is not initialized yet!",
+                                    "Words or TTS is not initialized yet!",
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
@@ -274,9 +247,9 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("mainMenu") {
                         MainMenuScreen(
-                            adjectives = adjectives,
-                            verbs = verbs,
-                            nouns = nouns,
+                            adjectives = adjectives.orEmpty(),
+                            verbs = verbs.orEmpty(),
+                            nouns = nouns.orEmpty(),
                             supportedLanguages = supportedLanguages,
                             createBitmap = ::createBitmapFromCanvasView,
                             shareBitmap = ::shareBitmap
@@ -291,8 +264,6 @@ class MainActivity : ComponentActivity() {
         TTSManager.shutdown()
         super.onDestroy()
     }
-
-
 }
 
 // --- Composables ---
@@ -346,7 +317,6 @@ fun DisplayFace(head: Int, leftEye: Int, rightEye: Int, mouth: Int) {
         )
     }
 }
-
 @Composable
 fun MyCanvas(
     modifier: Modifier = Modifier,
@@ -354,9 +324,10 @@ fun MyCanvas(
     adjectives: List<String>,
     verbs: List<String>,
     nouns: List<String>,
-    createBitmap: (View) -> Bitmap,
+    createBitmap: suspend(View) -> Bitmap,
     shareBitmap: (Context, Bitmap) -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope() // create a coroutine scope
 
     // State variables for face parts
     var head by remember { mutableStateOf(getRandomFacePart(heads)) }
@@ -424,27 +395,19 @@ fun MyCanvas(
         val context = LocalContext.current
         val view = LocalView.current
         Button(onClick = {
-            val bitmap = createBitmap(view)
-            shareBitmap(context, bitmap)
+            coroutineScope.launch{
+                val bitmap = createBitmap(view)
+                shareBitmap(context, bitmap)
+            }
         }) {
             Text("Share")
         }
     }
 }
-
 @Composable
-fun StartScreen(onNavigationToMainMenu: () -> Unit) {
-    var isLoading by remember { mutableStateOf(true) }
-    var progress by remember { mutableStateOf(0f) }
-
-    // simulate loading
-    LaunchedEffect(Unit) {
-        while (progress < 1f) {
-            progress += 0.02f
-            delay(20) // frames i think 🤔
-        }
-        isLoading = false // once loading is complete, shop showing bar
-    }
+fun StartScreen(
+    isLoading: Boolean,
+    onNavigationToMainMenu: () -> Unit) {
 
     Box(
         modifier = Modifier
@@ -453,7 +416,7 @@ fun StartScreen(onNavigationToMainMenu: () -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         if (isLoading) {
-            CircularProgressIndicator(progress = progress)
+            Text("Loading data...")
         } else {
             Button(onClick = { onNavigationToMainMenu() }) {
                 Text("Make friends!")
@@ -461,14 +424,13 @@ fun StartScreen(onNavigationToMainMenu: () -> Unit) {
         }
     }
 }
-
 @Composable
 fun MainMenuScreen(
     adjectives: List<String>,
     verbs: List<String>,
     nouns: List<String>,
     supportedLanguages: List<Locale>,
-    createBitmap: (View) -> Bitmap,
+    createBitmap: suspend(View) -> Bitmap,
     shareBitmap: (Context, Bitmap) -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -492,7 +454,6 @@ fun MainMenuScreen(
         )
     }
 }
-
 @Preview(showBackground = true)
 @Composable
 fun RandomFacePreview() {
