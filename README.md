@@ -1,7 +1,7 @@
 🌱 A small app project for fun and for learning to work with Kotlin in Android Studio  
 
-![Image of the app in it's current state](imageA.jpg)  
-![Image of the app in it's current state](imageB.jpg)  
+<img src="imageA.jpg" alt="Image of the app in its current state" width="300"/> 
+<img src="imageB.jpg" alt="Image of the app in its current state" width="300"/>  
   
 🌱 Todo:  
 [ ] mute button  
