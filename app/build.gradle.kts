@@ -68,5 +68,7 @@ dependencies {
     debugImplementation(libs.androidx.ui.test.manifest)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3") // for coroutine and delay
     implementation("androidx.navigation:navigation-compose:2.8.1") // for navigation
-
+    // Coil with SVG support
+    implementation("io.coil-kt:coil-compose:2.0.0")
+    implementation("io.coil-kt:coil-svg:2.0.0")
 }

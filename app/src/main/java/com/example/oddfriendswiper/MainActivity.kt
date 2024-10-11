@@ -15,7 +15,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import com.example.oddfriendswiper.ui.theme.OddFriendSwiperTheme
@@ -41,17 +40,17 @@ import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import coil.ImageLoader
+import coil.decode.SvgDecoder
+import coil.request.ImageRequest
+import coil.compose.rememberAsyncImagePainter
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
 
 // --- Constants and Data Classes ---
-val heads = arrayOf(R.drawable.heads1, R.drawable.heads2, R.drawable.heads3, R.drawable.heads4)
-val eyes = arrayOf(
-    R.drawable.eyes1,
-    R.drawable.eyes2,
-    R.drawable.eyes3,
-    R.drawable.eyes4,
-    R.drawable.eyes5
-)
-val mouths = arrayOf(R.drawable.mouths1, R.drawable.mouths2, R.drawable.mouths3)
+var heads = mutableListOf<String>()
+var eyes = mutableListOf<String>()
+var mouths = mutableListOf<String>()
 
 object TTSManager : TextToSpeech.OnInitListener {
     private var textToSpeech: TextToSpeech? = null
@@ -104,6 +103,46 @@ object TTSManager : TextToSpeech.OnInitListener {
 }
 
 // --- Utility Functions ---
+/*
+suspend fun loadImagesFromFolderAsync(context: Context): Map<String, List<Int>> {
+    return withContext(Dispatchers.IO) {
+        try {
+            val headImages = loadImagesFromAssets(context, "heads")
+            val eyeImages = loadImagesFromAssets(context, "eyes")
+            val mouthImages = loadImagesFromAssets(context, "mouths")
+
+            mapOf(
+                "heads" to headImages,
+                "eyes" to eyeImages,
+                "mouths" to mouthImages
+            )
+        } catch (ex: IOException) {
+            ex.printStackTrace()
+            emptyMap()
+        }
+    }
+}
+
+ */
+fun loadSvgImagesFromAssets(context: Context, folder: String): List<String> {
+    val imagePaths = mutableListOf<String>()
+    try {
+        val assetManager = context.assets
+        val fileNames = assetManager.list(folder)
+
+        fileNames?.forEach { fileName ->
+            if (fileName.endsWith(".svg")) {
+                // Add the file path to the list (from the assets folder)
+                //imagePaths.add("file:///assets/$folder/$fileName")
+                imagePaths.add(fileName)
+            }
+        }
+    } catch (e: IOException) {
+        e.printStackTrace()
+    }
+    return imagePaths
+}
+
 suspend fun loadWordsFromJsonAsync(context: Context): Map<String, List<String>> {
     return withContext(Dispatchers.IO){
         val json: String
@@ -130,7 +169,10 @@ fun JSONArray.toList(): List<String> {
     }
     return list
 }
-fun getRandomFacePart(parts: Array<Int>): Int {
+fun getRandomFacePart(parts: Array<String>): String {
+    if (parts.isEmpty()){
+        throw IllegalArgumentException("Face parts array is empty. Make sure images are loaded before accessing, silly.")
+    }
     return parts.random()
 }
 fun generateRandomSentence(
@@ -210,12 +252,21 @@ class MainActivity : ComponentActivity() {
                 //for word lists
                 val isDataLoaded = remember { mutableStateOf(false) }
 
-                // Load words from JSON
+                // Load words from JSON & images
                 LaunchedEffect(Unit) {
                     val wordsMap = loadWordsFromJsonAsync(this@MainActivity)
                     adjectives = wordsMap["adjectives"]
                     verbs = wordsMap["verbs"]
                     nouns = wordsMap["nouns"]
+
+                    val imagesMap: Map<String, List<String>> = mapOf(
+                        "heads" to loadSvgImagesFromAssets(this@MainActivity, "heads"),
+                        "eyes" to loadSvgImagesFromAssets(this@MainActivity, "eyes"),
+                        "mouths" to loadSvgImagesFromAssets(this@MainActivity, "mouths")
+                    )
+                    heads = imagesMap["heads"]?.toMutableList() ?: mutableListOf()
+                    eyes = imagesMap["eyes"]?.toMutableList() ?: mutableListOf()
+                    mouths = imagesMap["mouths"]?.toMutableList() ?: mutableListOf()
 
                     if (adjectives !=null && verbs != null && nouns != null){
                         isDataLoaded.value = true
@@ -268,52 +319,62 @@ class MainActivity : ComponentActivity() {
 
 // --- Composables ---
 @Composable
-fun DisplayFace(head: Int, leftEye: Int, rightEye: Int, mouth: Int) {
+fun DisplayFace(head: String, eye: String, mouth: String) {
+
+    val context = LocalContext.current
+
+    // Setup an ImageLoader with SVG support
+    val imageLoader = ImageLoader.Builder(context)
+        .components {
+            add(SvgDecoder.Factory()) // Add SVG decoding support
+        }
+        .build()
+
     Box(
         modifier = Modifier.size(300.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Head (this will be at the back)
+        Log.d("ImagePath", "Eye image path: $head")
         Image(
-            painter = painterResource(id = head),
+            painter = rememberAsyncImagePainter(
+                model = ImageRequest.Builder(context)
+                    .data("file:///android_asset/heads/$head")
+                    .build(),
+                imageLoader = imageLoader
+            ),
             contentDescription = "Head",
             modifier = Modifier.size(200.dp)
         )
 
-        // Eyes (side by side)
-        Row(
+        // Load the eye SVG image
+        Image(
+            painter = rememberAsyncImagePainter(
+                model = ImageRequest.Builder(context)
+                    .data("file:///android_asset/eyes/$eye")
+                    // WORKS: painter = rememberImagePainter("file:///android_asset/test1.jpg"),
+                    .build(),
+                imageLoader = imageLoader
+            ),
+            contentDescription = "Eye",
             modifier = Modifier
                 .align(Alignment.Center)
-                .offset(y = -50.dp), // Move the eyes above the head
-            horizontalArrangement = Arrangement.spacedBy(40.dp) // Spacing between the eyes
-        ) {
-            // Left eye
-            Image(
-                painter = painterResource(id = leftEye),
-                contentDescription = "Left Eye",
-                modifier = Modifier
-                    .size(50.dp)
-                    .offset(y = 40.dp, x = 20.dp)
-            )
+                //.offset(y = -10.dp)
+                .size(200.dp)
+        )
 
-            // Right eye
-            Image(
-                painter = painterResource(id = rightEye),
-                contentDescription = "Right Eye",
-                modifier = Modifier
-                    .size(50.dp)
-                    .offset(y = 40.dp, x = -20.dp)
-            )
-        }
-
-        // Mouth (positioned below the eyes)
+        // Load the mouth SVG image
         Image(
-            painter = painterResource(id = mouth),
+            painter = rememberAsyncImagePainter(
+                model = ImageRequest.Builder(context)
+                    .data("file:///android_asset/mouths/$mouth")
+                    .build(),
+                imageLoader = imageLoader
+            ),
             contentDescription = "Mouth",
             modifier = Modifier
                 .align(Alignment.Center)
-                .offset(y = 40.dp)
-                .size(80.dp)
+                //.offset(y = 40.dp)
+                .size(200.dp)
         )
     }
 }
@@ -330,10 +391,9 @@ fun MyCanvas(
     val coroutineScope = rememberCoroutineScope() // create a coroutine scope
 
     // State variables for face parts
-    var head by remember { mutableStateOf(getRandomFacePart(heads)) }
-    var leftEye by remember { mutableStateOf(getRandomFacePart(eyes)) }
-    var rightEye by remember { mutableStateOf(getRandomFacePart(eyes)) }
-    var mouth by remember { mutableStateOf(getRandomFacePart(mouths)) }
+    var head by remember { mutableStateOf(getRandomFacePart(heads.toTypedArray())) }
+    var eye by remember { mutableStateOf(getRandomFacePart(eyes.toTypedArray())) }
+    var mouth by remember { mutableStateOf(getRandomFacePart(mouths.toTypedArray())) }
 
     // state variable for the sentence parts
     var sentenceParts by remember {
@@ -353,12 +413,14 @@ fun MyCanvas(
     Column(
         modifier = modifier
             .fillMaxSize()
+            //.background(Color(0xFFFFD700))
+            .background(Color(0xFFFFFF31))
             .padding(16.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // sentence displayed here
-        Text(sentence)
+        Text(sentence, color = Color.Black)
         Spacer(modifier = Modifier.height(16.dp))
 
         // Use DisplayFace and add the swipeable modifier
@@ -367,7 +429,7 @@ fun MyCanvas(
                 .size(300.dp),
             contentAlignment = Alignment.Center
         ) {
-            DisplayFace(head = head, leftEye = leftEye, rightEye = rightEye, mouth = mouth)
+            DisplayFace(head = head, eye = eye, mouth = mouth)
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -377,10 +439,9 @@ fun MyCanvas(
         // "next"-button
         Button(onClick = {
             // update state variables with new random states
-            head = getRandomFacePart(heads)
-            leftEye = getRandomFacePart(eyes)
-            rightEye = getRandomFacePart(eyes)
-            mouth = getRandomFacePart(mouths)
+            head = getRandomFacePart(heads.toTypedArray())
+            eye = getRandomFacePart(eyes.toTypedArray())
+            mouth = getRandomFacePart(mouths.toTypedArray())
 
             // Update sentence parts and speak
             sentenceParts = generateRandomSentence(adjectives, verbs, nouns)
