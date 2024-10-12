@@ -103,27 +103,6 @@ object TTSManager : TextToSpeech.OnInitListener {
 }
 
 // --- Utility Functions ---
-/*
-suspend fun loadImagesFromFolderAsync(context: Context): Map<String, List<Int>> {
-    return withContext(Dispatchers.IO) {
-        try {
-            val headImages = loadImagesFromAssets(context, "heads")
-            val eyeImages = loadImagesFromAssets(context, "eyes")
-            val mouthImages = loadImagesFromAssets(context, "mouths")
-
-            mapOf(
-                "heads" to headImages,
-                "eyes" to eyeImages,
-                "mouths" to mouthImages
-            )
-        } catch (ex: IOException) {
-            ex.printStackTrace()
-            emptyMap()
-        }
-    }
-}
-
- */
 fun loadSvgImagesFromAssets(context: Context, folder: String): List<String> {
     val imagePaths = mutableListOf<String>()
     try {
@@ -204,19 +183,17 @@ suspend fun createBitmapFromCanvasView(view:View):Bitmap{
 
 // --- Main Activity ---
 class MainActivity : ComponentActivity() {
-    // declare TTS variable
-    private val supportedLanguages = listOf(Locale.US, Locale.UK, Locale.CANADA, Locale.GERMANY)
-
+    //private val supportedLanguages = listOf(Locale.US, Locale.UK, Locale.CANADA, Locale.GERMANY)
     private var adjectives: List<String>? = null
     private var verbs: List<String>? = null
     private var nouns: List<String>? = null
 
-    fun shareBitmap(context: Context, bitmap: Bitmap) {
+    private fun shareBitmap(context: Context, bitmap: Bitmap) {
         try {
             // Save bitmap to cache directory
             val cachePath = File(context.cacheDir, "images")
             cachePath.mkdirs() // Create directory if not exists
-            val file = File(cachePath, "frienda_image.png")
+            val file = File(cachePath, "friend_image.png")
             val fileOutputStream = FileOutputStream(file)
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, fileOutputStream)
             fileOutputStream.close()
@@ -244,7 +221,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        enableEdgeToEdge()
+        enableEdgeToEdge() // extends content to screen edges
 
         setContent {
             OddFriendSwiperTheme {
@@ -301,7 +278,7 @@ class MainActivity : ComponentActivity() {
                             adjectives = adjectives.orEmpty(),
                             verbs = verbs.orEmpty(),
                             nouns = nouns.orEmpty(),
-                            supportedLanguages = supportedLanguages,
+                            //supportedLanguages = supportedLanguages,
                             createBitmap = ::createBitmapFromCanvasView,
                             shareBitmap = ::shareBitmap
                         )
@@ -490,20 +467,18 @@ fun MainMenuScreen(
     adjectives: List<String>,
     verbs: List<String>,
     nouns: List<String>,
-    supportedLanguages: List<Locale>,
+    //supportedLanguages: List<Locale>,
     createBitmap: suspend(View) -> Bitmap,
     shareBitmap: (Context, Bitmap) -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
 
     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-        //if(isLoading){LoadingScreen()}
-        // This is where we show the face parts
         MyCanvas(
             modifier = Modifier.padding(innerPadding),
             onSpeak = { sentence ->
                coroutineScope.launch {
-                   // can handle language selection here
+                   // can handle language selection here later (supportedLanguages)
                    TTSManager.speak(sentence)
                }
             },
